@@ -353,9 +353,11 @@ if __name__ == '__main__':
     lockfile = "%s.lck" % opts.CONFIG_FILE
     logging.basicConfig(level=logging.INFO)
     try:
-        with FileLock(lockfile):
+        with FileLock(lockfile) as fl:
             run = Run(opts)
             run.connect()
-    except FileLockException:
+    except FileLockException as fle:
         log.info("Already Running")
+    except:
+        raise
         
