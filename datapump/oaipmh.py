@@ -70,7 +70,7 @@ class OAIDC():
         resource_locator = record.xpath("oai:metadata/oai_dc:dc/dc:identifier/text()", namespaces=self.namespaces)
         
         if resource_locator == None or len(resource_locator) == 0:
-            return None
+            return (None, None)
         
         subject = record.xpath("oai:metadata/oai_dc:dc/dc:subject/text()", namespaces=self.namespaces)
         language = record.xpath("oai:metadata/oai_dc:dc/dc:language/text()", namespaces=self.namespaces)
@@ -119,16 +119,16 @@ class NSDL(OAIDC):
         
         if resource_locator == None or len(resource_locator) == 0:
             log.info("Skipping: No resource_locator")
-            return None
+            return (None, None)
         
         try:
             (scheme, netloc, _, _, _, _) = urlparse(resource_locator[0])
             if scheme == '' or netloc == '':
                 log.info("Skipping: Bad resource_locator")
-                return None
+                return (None, None)
         except:
             log.exception("Not a URL: %s", resource_locator[0])
-            return None
+            return (None, None)
         
         try:
             repo_id = record.xpath("oai:header/oai:identifier[1]/text()", namespaces=self.namespaces)[0]
