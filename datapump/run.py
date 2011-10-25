@@ -351,7 +351,7 @@ class Run():
 if __name__ == '__main__':
     opts = Opts()
     lockfile = "%s.lck" % opts.CONFIG_FILE
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(format="%(asctime)s : %(levelname)s : %(message)s", datefmt='%Y-%m-%dT%H:%M:%S%Z', level=logging.INFO)
     try:
         with FileLock(lockfile) as fl:
             run = Run(opts)
