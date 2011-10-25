@@ -16,7 +16,7 @@ from LRSignature.sign import Sign
 from datapump.couchdb import CouchDB
 from datapump.oaipmh import NSDL, OAIDC
 from datetime import datetime
-from filelock import FileLock, FileLockException
+from filelock.filelock import FileLock, FileLockException
 from urllib2 import HTTPError
 import argparse
 import codecs
@@ -358,6 +358,5 @@ if __name__ == '__main__':
             run.connect()
     except FileLockException as fle:
         log.info("Already Running")
-    except:
-        raise
-        
+    except Exception:
+        log.exception()
