@@ -11,17 +11,12 @@
 #WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #See the License for the specific language governing permissions and
 #limitations under the License.
-
-'''
-Created on Oct 20, 2011
-
-@author: jklo
-'''
 from __future__ import division
 from LRSignature.sign import Sign
 from datapump.couchdb import CouchDB
 from datapump.oaipmh import NSDL, OAIDC
 from datetime import datetime
+from filelock import FileLock, FileLockException
 from urllib2 import HTTPError
 import argparse
 import codecs
@@ -30,7 +25,14 @@ import json
 import logging
 import oaipmh
 import os
+import sys
 import urllib2
+
+'''
+Created on Oct 20, 2011
+
+@author: jklo
+'''
 
 log = logging.getLogger(__name__)
 
@@ -321,7 +323,11 @@ class Run():
                         self.couch.saw(repo_id, published)
                      
                     pubcount = numDocs - nonpubcount
-                    log.info("Published {pub} documents, {nonpub} documents were not published.".format(pub=pubcount, nonpub=nonpubcount))
+                    try:
+                        size = sys.getsizeof(self.docList, -1) / 1024
+                    except:
+                        size = 0
+                    log.info("Published {pub} documents ({kbytes}KB), {nonpub} documents were not published.".format(pub=pubcount, nonpub=nonpubcount, kbytes=size))
 #                    assert True == False
                 else:
                     self.chunk += 1
@@ -344,6 +350,12 @@ class Run():
 
 if __name__ == '__main__':
     opts = Opts()
+    lockfile = "%s.lck" % opts.CONFIG_FILE
     logging.basicConfig(level=logging.INFO)
-    run = Run(opts)
-    run.connect()
+    try:
+        with FileLock(lockfile):
+            run = Run(opts)
+            run.connect()
+    except FileLockException:
+        log.info("Already Running")
+        
