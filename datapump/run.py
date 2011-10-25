@@ -17,8 +17,8 @@ Created on Oct 20, 2011
 
 @author: jklo
 '''
-from LRSignature.sign import Sign
 from __future__ import division
+from LRSignature.sign import Sign
 from datapump.couchdb import CouchDB
 from datapump.oaipmh import NSDL, OAIDC
 from datetime import datetime
