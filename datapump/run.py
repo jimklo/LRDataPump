@@ -27,6 +27,10 @@ import oaipmh
 import os
 import sys
 import urllib2
+import Queue
+from datapump.threaded import RepoExtractor, LRPublisher
+import thread
+import time
 
 '''
 Created on Oct 20, 2011
@@ -245,27 +249,54 @@ class Run():
         else:
             return doc
         
+        
     @LogStartStop()
     def connect(self):
         try:
-            for recset in self.fetcher.fetchRecords():
-                for rec in recset:
-                    if self.transformer is not None:
-                        (repo_id, doc) = self.transformer.format(rec)
-                        seen = self.couch.have_i_seen(repo_id)
-                        if not seen or seen["published"] == False:
-                            doc = self.sign(doc)
-                            if (doc != None and repo_id != None):
-                                self.docList[repo_id] = doc
-    
-                    self.publishToNode()
-                self.publishToNode()
+            work_queue = Queue.Queue()
+            
+            extractor = RepoExtractor(self, work_queue)
+            extractor.setDaemon(True)
+            extractor.start()
+            
+            publisher = LRPublisher(self, work_queue)
+            publisher.setDaemon(True)
+            publisher.start()
+            
+            work_queue.join()
+            
+            done = False
+            while done == False:
+                time.sleep(10)
+                done = extractor.done and work_queue.empty()
+            
             self.publishToNode(force=True)
             self.completed_set = True
         except:
-            log.exception("Stopping")
+            log.exception("Error occured")
         finally:
             self.storeHistory()
+#    @LogStartStop()
+#    def connect(self):
+#        try:
+#            for recset in self.fetcher.fetchRecords():
+#                for rec in recset:
+#                    if self.transformer is not None:
+#                        (repo_id, doc) = self.transformer.format(rec)
+#                        seen = self.couch.have_i_seen(repo_id)
+#                        if not seen or seen["published"] == False:
+#                            doc = self.sign(doc)
+#                            if (doc != None and repo_id != None):
+#                                self.docList[repo_id] = doc
+#    
+#                    self.publishToNode()
+#                self.publishToNode()
+#            self.publishToNode(force=True)
+#            self.completed_set = True
+#        except:
+#            log.exception("Stopping")
+#        finally:
+#            self.storeHistory()
             
     def storeHistory(self):
         

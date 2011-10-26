@@ -252,6 +252,7 @@ class Fetcher():
         set = self.conf["set"]
         
         params = { "verb": verb, "metadataPrefix": metadataPrefix }
+        tok_params = { "verb": verb }
         if set != None:
             params["set"] = set
             
@@ -266,12 +267,12 @@ class Fetcher():
         tokenList = tree.xpath("oai:ListRecords/oai:resumptionToken/text()", namespaces=self.namespaces)
         yield tree.xpath("oai:ListRecords/oai:record", namespaces=self.namespaces)
         
-        del params["metadataPrefix"]
+#        del params["metadataPrefix"]
         
         while (len(tokenList) == 1):
             try:
-                params["resumptionToken"] = tokenList[0]
-                body = self.makeRequest("%s%s" % (server, path), **params)
+                tok_params["resumptionToken"] = tokenList[0]
+                body = self.makeRequest("%s%s" % (server, path), **tok_params)
                 f = StringIO(body)
                 tree = etree.parse(f)
                 yield tree.xpath("oai:ListRecords/oai:record", namespaces=self.namespaces)
