@@ -27,6 +27,7 @@ import oaipmh
 import os
 import sys
 import urllib2
+import base64
 
 '''
 Created on Oct 20, 2011
@@ -228,7 +229,13 @@ class Run():
             self.publishEndpoint = None
             self.chunk = 0
         else:
-            self.publishEndpoint = urllib2.Request("{server}/publish".format(server=self.opts.LEARNING_REGISTRY_URL), headers={"Content-Type":"application/json; charset=utf-8"})
+            hdrs = {"Content-Type":"application/json; charset=utf-8"}
+            
+            if self.config["publish_user"] is not None and self.config["publish_passwd"] is not None:
+                creds = "{u}:{p}".format(u=self.config["publish_user"].strip(), p=self.config["publish_passwd"].strip())
+                hdrs['Authorization'] = 'Basic ' + base64.encodestring(creds.strip())
+            
+            self.publishEndpoint = urllib2.Request("{server}/publish".format(server=self.opts.LEARNING_REGISTRY_URL), headers=hdrs)
         
         return self.publishEndpoint 
  
