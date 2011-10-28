@@ -146,11 +146,11 @@ class NSDL(OAIDC):
         
         doc["resource_locator"] = resource_locator[0].strip()
         
-        doc["keys"].extend(map(lambda x: str(x).strip(), subject))
-        doc["keys"].extend(map(lambda x: str(x).strip(), language))
-        doc["keys"].extend(map(lambda x: str(x).strip(), edLevel))
+        doc["keys"].extend(map(lambda x: unicode(x).encode("utf-8").strip(), subject))
+        doc["keys"].extend(map(lambda x: unicode(x).encode("utf-8").strip(), language))
+        doc["keys"].extend(map(lambda x: unicode(x).encode("utf-8").strip(), edLevel))
         
-        doc["keys"].extend(map(lambda x: str(x).strip(), collection))
+        doc["keys"].extend(map(lambda x: unicode(x).encode("utf-8").strip(), collection))
         if len(collection) > 0 and collection[0].strip() in self.col_map:
             doc["keys"].append(self.col_map[collection[0]])
             
@@ -158,10 +158,10 @@ class NSDL(OAIDC):
         doc["keys"] = self._unique(doc["keys"])
         
         doc["payload_schema"].append("nsdl_dc")
-        doc["payload_schema_locator"] = schemaLocation[0].strip()
+        doc["payload_schema_locator"] = schemaLocation[0].encode("utf-8").strip()
         
         doc["payload_placement"] = "inline"
-        doc["resource_data"] = etree.tostring(payload[0]).strip()
+        doc["resource_data"] = etree.tostring(payload[0]).encode("utf-8").strip()
         
         for key in doc.keys():
             if (doc[key] == None):
