@@ -60,7 +60,7 @@ class OAIDC():
                 "payload_locator": None,
                 "resource_data": None
                 }
-        if  "attribution" in self.config:
+        if  "attribution" in self.config and self.config["attribution"] is not None:
             doc["TOS"]["submission_attribution"] = self.config["attribution"]
         return doc
     
@@ -265,16 +265,19 @@ class Fetcher():
         f = StringIO(body)
         tree = etree.parse(f)
         tokenList = tree.xpath("oai:ListRecords/oai:resumptionToken/text()", namespaces=self.namespaces)
+        log.debug("FIRST RESUMPTION: "+str(tokenList))
         yield tree.xpath("oai:ListRecords/oai:record", namespaces=self.namespaces)
-                
+        resumptionCount = 1   
         while (len(tokenList) == 1):
             try:
+                resumptionCount += 1
                 tok_params["resumptionToken"] = tokenList[0]
                 body = self.makeRequest("%s%s" % (server, path), **tok_params)
                 f = StringIO(body)
                 tree = etree.parse(f)
                 yield tree.xpath("oai:ListRecords/oai:record", namespaces=self.namespaces)
                 tokenList = tree.xpath("oai:ListRecords/oai:resumptionToken/text()", namespaces=self.namespaces)
+                log.debug("HAS RESUMPTION #{0}: {1}".format(resumptionCount, str(tokenList)))
             except:
                 tokenList = []
                 log.exception("Problem trying to get next segment.")

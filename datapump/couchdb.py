@@ -17,6 +17,7 @@ Created on Oct 21, 2011
 @author: jklo
 '''
 from urllib2 import HTTPError
+import base64
 import json
 import urllib
 import urllib2
@@ -39,6 +40,16 @@ class CouchDB(object):
             db = opts.settings["couch"]["db"]
         except:
             db = "dpump"
+
+        self.headers = {}
+
+        try:
+            if opts.settings["couch"]["user:passwd"] is not None:
+                creds = opts.settings["couch"]["user:passwd"].strip()
+                self.headers['Authorization'] = 'Basic ' + base64.encodestring(creds)[:-1]
+        except:
+            pass
+
             
             
         self.couch = "{server}/{db}".format(server=server, db=db)
@@ -62,6 +73,8 @@ class CouchDB(object):
         
         opener = urllib2.build_opener(urllib2.HTTPHandler)
         request = urllib2.Request(**opts)
+        for head, val in self.headers.items():
+            request.add_header(head, val)
         request.add_header('Content-Type', 'application/json; charset=utf-8')
         request.get_method = lambda: verb
         

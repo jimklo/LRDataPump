@@ -9,6 +9,7 @@ from lxml import etree
 import Queue
 import os
 import logging
+import json
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class RepoExtractor(threading.Thread):
         self.queue = queue
         self.workdir = tempfile.mkdtemp(dir=workdir)
         self.done = False
+        log.info("Cache files are written to: {0}".format(self.workdir))
         
     def run(self):
         try:

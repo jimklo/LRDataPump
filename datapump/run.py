@@ -85,6 +85,7 @@ class Opts:
         parser = argparse.ArgumentParser(description="Harvest OAI data from one source and convert to Learning Registry resource data envelope. Write to file or publish to LR Node.")
         parser.add_argument('-u', '--url', dest="registryUrl", help='URL of the registry to push the data. "-" prints to stdout', default=self.LEARNING_REGISTRY_URL)
         parser.add_argument('-c', '--config', dest="config", help='Configuration file', default=None)
+        parser.add_argument('-l', '--loglevel', dest="log_level", help='Log level verbose:0 - critical:50, default {0}'.format(logging.INFO), type=int, default=logging.INFO)
         parser.add_argument('--chunksize', help='Number of envelopes per output file', type=int, default=100)
         options = parser.parse_args()
         self.LEARNING_REGISTRY_URL = options.registryUrl
@@ -261,7 +262,9 @@ class Run():
  
     def sign(self, doc):
         if doc != None and self.signtool != None:
+            log.debug("Signing doc.")
             signed = self.signtool.sign(doc)
+
             try:
                 if len(signed["digital_signature"]["signature"]) == 0:
                     log.error("Problem signing document")
@@ -270,6 +273,7 @@ class Run():
             
             return signed
         else:
+            log.debug("Not signing doc.")
             return doc
         
         
@@ -355,7 +359,9 @@ class Run():
                 body = { "documents":docList }
                 endpoint = self.getPublishEndpoint()
                 if endpoint is not None:
-                    response = urllib2.urlopen(endpoint, data=json.dumps(body))
+                    content = json.dumps(body)
+                    log.debug("PUBLISHING: "+content)
+                    response = urllib2.urlopen(endpoint, data=content)
                     
                     publishStatus = json.load(response)
                     if not publishStatus["OK"]:
@@ -405,7 +411,7 @@ class Run():
 if __name__ == '__main__':
     opts = Opts()
     lockfile = "%s.lck" % opts.CONFIG_FILE
-    logging.basicConfig(format="%(asctime)s : %(levelname)s : %(message)s", datefmt='%Y-%m-%dT%H:%M:%S%Z', level=logging.INFO)
+    logging.basicConfig(format="%(asctime)s : %(levelname)s : %(message)s", datefmt='%Y-%m-%dT%H:%M:%S%Z', level=opts.OPTIONS.log_level)
     try:
         with FileLock(lockfile) as fl:
             run = Run(opts)
