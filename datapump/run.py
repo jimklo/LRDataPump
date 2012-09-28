@@ -31,6 +31,7 @@ import Queue
 from datapump.threaded import RepoExtractor, LRPublisher
 import thread
 import time
+import base64
 
 '''
 Created on Oct 20, 2011
@@ -79,7 +80,7 @@ def LogStartStop():
 
 class Opts:
     def __init__(self):
-        self.LEARNING_REGISTRY_URL = "-"
+        self.LEARNING_REGISTRY_URL = None
         
         parser = argparse.ArgumentParser(description="Harvest OAI data from one source and convert to Learning Registry resource data envelope. Write to file or publish to LR Node.")
         parser.add_argument('-u', '--url', dest="registryUrl", help='URL of the registry to push the data. "-" prints to stdout', default=self.LEARNING_REGISTRY_URL)
@@ -136,21 +137,32 @@ class Opts:
             self.settings.update(extConf)
             
         config = self.settings["config"]
-        
-        if config["sign"] == True and "keyId" in config and "passphrase" in config and "keyLocations" in config:
+        try:
+            if config["sign"] == True and "keyId" in config and "passphrase" in config and "keyLocations" in config:
+                
+                gpg = {
+                       "privateKeyID": config["keyId"],
+                       "passphrase": config["passphrase"],
+                       "publicKeyLocations": config["keyLocations"]
+                }
+                if "gnupgHome" in config:
+                    gpg["gnupgHome"] = config["gnupgHome"]
+                
+                if "gpgbin" in config:
+                    gpg["gpgbin"] = config["gpgbin"]
+    
+                self.signtool = Sign.Sign_0_21(**gpg)
+        except:
+            log.exception("Error with signing configuration.")
             
-            gpg = {
-                   "privateKeyID": config["keyId"],
-                   "passphrase": config["passphrase"],
-                   "publicKeyLocations": config["keyLocations"]
-            }
-            if "gnupgHome" in config:
-                gpg["gnupgHome"] = config["gnupgHome"]
-            
-            if "gpgbin" in config:
-                gpg["gpgbin"] = config["gpgbin"]
+        try:
+            if self.LEARNING_REGISTRY_URL==None and config["publish_url"] != None:
+                self.LEARNING_REGISTRY_URL = config["publish_url"]
+        except:
+            if self.LEARNING_REGISTRY_URL==None:
+                self.LEARNING_REGISTRY_URL="-"
 
-            self.signtool = Sign.Sign_0_21(**gpg)
+                
     
     def parseSettings(self):
         
@@ -183,6 +195,8 @@ class Opts:
             now = datetime.utcnow()
             self.until_date = now.strftime("%Y-%m-%dT%H:%M:%SZ")    
             self.until_date = self.settings["config"]["harvest_until"] = self.until_date
+            
+    
 
 class Run():
     def __init__(self, opts=Opts()):
@@ -232,7 +246,16 @@ class Run():
             self.publishEndpoint = None
             self.chunk = 0
         else:
-            self.publishEndpoint = urllib2.Request("{server}/publish".format(server=self.opts.LEARNING_REGISTRY_URL), headers={"Content-Type":"application/json; charset=utf-8"})
+            hdrs = {"Content-Type":"application/json; charset=utf-8"}
+            
+            try:
+                if self.config["publish_user"] is not None and self.config["publish_passwd"] is not None:
+                    creds = "{u}:{p}".format(u=self.config["publish_user"].strip(), p=self.config["publish_passwd"].strip())
+                    hdrs['Authorization'] = 'Basic ' + base64.encodestring(creds)[:-1]
+            except:
+                pass
+            
+            self.publishEndpoint = urllib2.Request("{server}/publish".format(server=self.opts.LEARNING_REGISTRY_URL), headers=hdrs)
         
         return self.publishEndpoint 
  

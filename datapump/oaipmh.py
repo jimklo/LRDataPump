@@ -266,9 +266,7 @@ class Fetcher():
         tree = etree.parse(f)
         tokenList = tree.xpath("oai:ListRecords/oai:resumptionToken/text()", namespaces=self.namespaces)
         yield tree.xpath("oai:ListRecords/oai:record", namespaces=self.namespaces)
-        
-#        del params["metadataPrefix"]
-        
+                
         while (len(tokenList) == 1):
             try:
                 tok_params["resumptionToken"] = tokenList[0]
