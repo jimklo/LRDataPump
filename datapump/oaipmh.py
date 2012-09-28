@@ -65,6 +65,7 @@ class OAIDC():
         return doc
     
     def format(self, record):
+        resource_endpoint = "http://oer.equella.com/items/{0}"
 
         doc = self.get_doc_template()
         resource_locator = record.xpath("oai:metadata/oai_dc:dc/dc:identifier/text()", namespaces=self.namespaces)
@@ -81,7 +82,7 @@ class OAIDC():
         except:
             repo_id = None
         
-        doc["resource_locator"] = resource_locator[0].strip()
+        doc["resource_locator"] = resource_endpoint.format(resource_locator[0].strip())
         
         doc["keys"].extend(map(lambda x: str(x).strip(), subject))
         doc["keys"].extend(map(lambda x: str(x).strip(), language))
