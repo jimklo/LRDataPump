@@ -22,7 +22,7 @@ Installation and Use
 
 
         $ git clone git://github.com/jimklo/LRDataPump.git
-        $ git checkout -b equella origin/equella
+        $ git checkout -b threaded origin/threaded
 
 
 2. Install a virtualenv and activate
