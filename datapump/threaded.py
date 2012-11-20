@@ -28,9 +28,9 @@ class RepoExtractor(threading.Thread):
             for (index, recset) in enumerate(self.runner.fetcher.fetchRecords()):
                 log.info("Writing cache #{0} : {1} files".format(index, len(recset)))
                 for (idx2, rec) in enumerate(recset):
-                    fname = os.path.join(self.workdir, "cache-{0}-{1}.xml".format(index,idx2))
+                    fname = os.path.join(self.workdir, "cache-{0:08d}-{1:08d}.xml".format(index,idx2))
                     with open(fname, "w") as f:
-                        f.write(etree.tostring(rec).encode("utf-8"))
+                        f.write(self.runner.fetcher.tostring(rec).encode("utf-8"))
                     self.queue.put(fname)
                     
         except:
@@ -44,6 +44,7 @@ class LRPublisher(threading.Thread):
         threading.Thread.__init__(self)
         self.runner = run
         self.queue = queue
+        self.stop = False
         
     
     def run(self):
@@ -51,19 +52,37 @@ class LRPublisher(threading.Thread):
             try:
                 fname = self.queue.get()
                 with open(fname) as x:
-                    rec = etree.parse(x)
+                    rec = self.runner.fetcher.load(x)
                     if self.runner.transformer is not None:
                         (repo_id, doc) = self.runner.transformer.format(rec)
                         seen = self.runner.couch.have_i_seen(repo_id)
                         if not seen or seen["published"] == False:
                             doc = self.runner.sign(doc)
                             if (doc != None and repo_id != None):
-                                self.runner.docList[repo_id] = doc
+                                try:
+                                    self.runner.doclocker.acquire()
+                                    self.runner.docList[repo_id] = doc
+                                finally:
+                                    self.runner.doclocker.release()
                     self.runner.publishToNode()
                 os.unlink(fname)
             except:
-                log.exception("Stopping")
+                if self.stop == True:
+                    log.exception("Stopping")
+                    break
+
             finally:
                 self.queue.task_done()
+
+
+class Locker():
+    def __init__(self):
+        self.lock = threading.Lock()
+
+    def acquire(self):
+        self.lock.acquire()
+
+    def release(self):
+        self.lock.release()
    
                 

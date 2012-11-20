@@ -24,13 +24,13 @@ import logging
 import sys
 import time
 import urllib2
+from learningregistry import LearningRegistry
 
 log = logging.getLogger(__name__)
 
-class OAIDC():
+class OAIDC(LearningRegistry):
     def __init__(self, identity, config, namespaces):
-        self.config = config
-        self.identity = identity
+        LearningRegistry.__init__(self, identity, config)
         self.namespaces = namespaces
         
     def _unique(self, seq):
@@ -41,28 +41,6 @@ class OAIDC():
         if doc != None and self.config.has_key("lr-test-data") and self.config["lr-test-data"] == True:
             doc["keys"].append("lr-test-data")
         return doc
-        
-    def get_doc_template(self):
-        doc = { 
-                "doc_type": "resource_data", 
-                "doc_version": "0.23.0", 
-                "resource_data_type" : "metadata",
-                "active" : True,
-                "identity": self.identity,
-                "TOS": {
-                        "submission_TOS":    self.config["tos"]
-                },
-                "resource_locator": None,
-                "keys": [],
-                "payload_placement": None,
-                "payload_schema": [],
-                "payload_schema_locator":None,
-                "payload_locator": None,
-                "resource_data": None
-                }
-        if  "attribution" in self.config and self.config["attribution"] is not None:
-            doc["TOS"]["submission_attribution"] = self.config["attribution"]
-        return doc
     
     def format(self, record):
         resource_endpoint = "http://oer.equella.com/items/{0}"
@@ -70,7 +48,8 @@ class OAIDC():
         doc = self.get_doc_template()
         resource_locator = record.xpath("oai:metadata/oai_dc:dc/dc:identifier/text()", namespaces=self.namespaces)
         
-        if resource_locator == None or len(resource_locator) == 0:
+
+        if not self.validate_resource_locator(resource_locator):
             return (None, None)
         
         subject = record.xpath("oai:metadata/oai_dc:dc/dc:subject/text()", namespaces=self.namespaces)
@@ -118,17 +97,7 @@ class NSDL(OAIDC):
         doc = self.get_doc_template()
         resource_locator = record.xpath("oai:metadata/nsdl_dc:nsdl_dc/dc:identifier/text()", namespaces=self.namespaces)
         
-        if resource_locator == None or len(resource_locator) == 0:
-            log.info("Skipping: No resource_locator")
-            return (None, None)
-        
-        try:
-            (scheme, netloc, _, _, _, _) = urlparse(resource_locator[0])
-            if scheme == '' or netloc == '':
-                log.info("Skipping: Bad resource_locator")
-                return (None, None)
-        except:
-            log.exception("Not a URL: %s", resource_locator[0])
+        if not self.validate_resource_locator(resource_locator):
             return (None, None)
         
         try:
@@ -242,6 +211,13 @@ class Fetcher():
         return col_names
 
     
+    def tostring(self, rec):
+        return etree.tostring(rec)
+
+
+    def load(self, rec):
+        return etree.parse(rec)
+
     def fetchRecords(self):
         '''
         Generator to fetch all records using a resumptionToken if supplied.

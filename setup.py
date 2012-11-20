@@ -26,6 +26,6 @@ setup(
     url = "https://github.com/jimklo/LRDataPump",
     description='Data Pump designed to work as a Cron',
     packages=find_packages(),
-    install_requires = ["argparse","LRSignature","lxml"],
+    install_requires = ["argparse","LRSignature","lxml","ijson"],
     license='Apache 2.0 License',
 )

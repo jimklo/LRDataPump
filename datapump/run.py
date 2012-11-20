@@ -28,10 +28,11 @@ import os
 import sys
 import urllib2
 import Queue
-from datapump.threaded import RepoExtractor, LRPublisher
+from datapump.threaded import RepoExtractor, LRPublisher, Locker
 import thread
 import time
 import base64
+import re
 
 '''
 Created on Oct 20, 2011
@@ -40,6 +41,13 @@ Created on Oct 20, 2011
 '''
 
 log = logging.getLogger(__name__)
+
+def my_import(name):
+    mod = __import__(name)
+    components = name.split('.')
+    for comp in components[1:]:
+        mod = getattr(mod, comp)
+    return mod
 
 def LogStartStop():
     
@@ -78,6 +86,43 @@ def LogStartStop():
     return decorator
 
 
+class PublishLog():
+    def __init__(self, plog=None):
+        self.plog = plog
+        self.locker = Locker()
+        try:
+            self.start = datetime.utcnow()
+            self.plogger = open(self.plog, "w", 1024)
+            self.plogger.write('''{ "log": [\n''')
+            self.op = None
+        except:
+            self.plogger = None
+
+    def log(self, doc, doc_ID, status, msg=None):
+        if self.plogger != None:
+            lines = []
+            if self.op != None:
+                lines.append(self.op)
+
+            obj = [doc_ID, status, doc]
+            if msg != None:
+                msg.append(msg)
+
+            lines.append(json.dumps(obj))
+
+            if self.op == None:
+                self.op = "\n,\n"
+
+            if len(lines) > 0:
+                self.plogger.writelines(lines)
+
+    def close(self):
+        if self.plogger != None:
+            
+            self.plogger.write('''\n],\n"started":"{0}", "completed":"{1}" }}'''.format(self.start.isoformat("T"), datetime.utcnow().isoformat("T")))
+            self.plogger.close()
+            self.plogger = None
+
 class Opts:
     def __init__(self):
         self.LEARNING_REGISTRY_URL = None
@@ -85,6 +130,7 @@ class Opts:
         parser = argparse.ArgumentParser(description="Harvest OAI data from one source and convert to Learning Registry resource data envelope. Write to file or publish to LR Node.")
         parser.add_argument('-u', '--url', dest="registryUrl", help='URL of the registry to push the data. "-" prints to stdout', default=self.LEARNING_REGISTRY_URL)
         parser.add_argument('-c', '--config', dest="config", help='Configuration file', default=None)
+        parser.add_argument('-p', '--plog', dest="plog", help='Publish log file.', default=None)
         parser.add_argument('-l', '--loglevel', dest="log_level", help='Log level verbose:0 - critical:50, default {0}'.format(logging.INFO), type=int, default=logging.INFO)
         parser.add_argument('--chunksize', help='Number of envelopes per output file', type=int, default=100)
         options = parser.parse_args()
@@ -167,8 +213,20 @@ class Opts:
     
     def parseSettings(self):
         
-        fetcher = oaipmh.Fetcher(namespaces=self.settings["namespaces"], conf=self.settings["config"])
+        if "fetcher" in self.settings:
+            try:
+
+                dyn_mod = __import__(self.settings['fetcher']['package'], fromlist=[self.settings['fetcher']['class']])
+                dyn_fetcher = getattr(dyn_mod, self.settings['fetcher']['class'])
+                fetcher = dyn_fetcher(namespaces=self.settings["namespaces"], conf=self.settings["config"])
+            except Exception as e:
+                log.exception()
+                raise e
+        else:
+            fetcher = oaipmh.Fetcher(namespaces=self.settings["namespaces"], conf=self.settings["config"])
         
+        self.fetcher = fetcher
+
         try:
             self.prev_success = self.settings["config"]["harvest_completed"]
         except:
@@ -208,9 +266,15 @@ class Run():
         self.identity = opts.settings["identity"]
         self.signtool = opts.signtool
         
-        
-        self.fetcher = oaipmh.Fetcher(namespaces=opts.settings["namespaces"], conf=opts.settings["config"])
+        if opts.fetcher == None:
+            raise Exception("Undefined Fetcher")
+        else:
+            self.fetcher = opts.fetcher
+
         self.docList = {}
+        self.doclocker = Locker()
+
+        self.plog = PublishLog(opts.OPTIONS.plog)
        
         if self.opts.settings["config"]["metadataPrefix"] == "nsdl_dc":
             col_names = self.fetcher.fetchCollections()
@@ -218,7 +282,21 @@ class Run():
         elif self.opts.settings["config"]["metadataPrefix"] == "oai_dc":
             self.transformer = OAIDC(identity=self.identity, config=self.config, namespaces=self.namespaces)
         else:
-            self.transformer = None
+            try:
+                self.transformer = None
+                m = re.match("(.*)\\.([^\\.]+)$", self.opts.settings["config"]["metadataPrefix"])
+                if m != None:
+                    pkg_name = m.group(1)
+                    cls_name = m.group(2)
+
+                    dyn_mod = __import__(pkg_name, fromlist=[cls_name])
+                    dyn_cls = getattr(dyn_mod, cls_name)
+                    self.transformer = dyn_cls(self)
+                else:
+                    log.critical("!!!!!!! No Transformer !!!!!!!")
+            except:
+                log.exception("Unable to load transformer")
+                
         
         try:
             self.prev_success = self.opts.prev_success
@@ -286,44 +364,28 @@ class Run():
             extractor.setDaemon(True)
             extractor.start()
             
-            publisher = LRPublisher(self, work_queue)
-            publisher.setDaemon(True)
-            publisher.start()
+            publishers = []
+            for num in range(12):
+                publishers.append(LRPublisher(self, work_queue))
+                publishers[num].setDaemon(True)
+                publishers[num].start()
             
             work_queue.join()
             
-            done = False
-            while done == False:
-                time.sleep(10)
-                done = extractor.done and work_queue.empty()
-            
+            # done = False
+            while extractor.done == False:
+                work_queue.join()
+
+            for pub in publishers:
+                pub.stop = True
+
             self.publishToNode(force=True)
             self.completed_set = True
         except:
             log.exception("Error occured")
         finally:
+            self.plog.close()
             self.storeHistory()
-#    @LogStartStop()
-#    def connect(self):
-#        try:
-#            for recset in self.fetcher.fetchRecords():
-#                for rec in recset:
-#                    if self.transformer is not None:
-#                        (repo_id, doc) = self.transformer.format(rec)
-#                        seen = self.couch.have_i_seen(repo_id)
-#                        if not seen or seen["published"] == False:
-#                            doc = self.sign(doc)
-#                            if (doc != None and repo_id != None):
-#                                self.docList[repo_id] = doc
-#    
-#                    self.publishToNode()
-#                self.publishToNode()
-#            self.publishToNode(force=True)
-#            self.completed_set = True
-#        except:
-#            log.exception("Stopping")
-#        finally:
-#            self.storeHistory()
             
     def storeHistory(self):
         
@@ -351,12 +413,25 @@ class Run():
         Save to Learning Registry
         '''
         numDocs = len(self.docList.keys())
+        log.debug("numDocs: {0}".format(numDocs))
         if self.opts.CHUNKSIZE <= numDocs or (numDocs > 0 and force):
             try:
                 repo_ids = []
                 docList = []
-                map(lambda x: (repo_ids.append(x[0]), docList.append(x[1])), self.docList.items())
+                try:
+                    self.doclocker.acquire()
+                    for x in self.docList.items():
+                        repo_ids.append(x[0])
+                        docList.append(x[1])
+                        del self.docList[x[0]]
+                finally:
+                    self.doclocker.release()
+
                 body = { "documents":docList }
+                try:
+                    size = sys.getsizeof(docList, -1) / 1024
+                except:
+                    size = 0
                 endpoint = self.getPublishEndpoint()
                 if endpoint is not None:
                     content = json.dumps(body)
@@ -381,20 +456,27 @@ class Run():
                         else:
                             published = True
                         self.couch.saw(repo_id, published)
+                        self.plog.log(docList[idx], result["doc_ID"], result["OK"], result["error"])
                      
                     pubcount = numDocs - nonpubcount
-                    try:
-                        size = sys.getsizeof(self.docList, -1) / 1024
-                    except:
-                        size = 0
+                    
                     log.info("Published {pub} documents ({kbytes}KB), {nonpub} documents were not published.".format(pub=pubcount, nonpub=nonpubcount, kbytes=size))
 #                    assert True == False
                 else:
                     self.chunk += 1
-                    print "/********* CHUNK {chunkNumber} *********/".format(chunkNumber=self.chunk)   
-                    print json.dumps(body, indent=4)   
-                            
-                self.docList.clear()
+                    for doc in docList: 
+                        self.plog.log(doc, "N/A", "Not Published")
+                    log.info("Chunk {chunkNumber} contains {pub} documents with a size of ({kbytes}KB)".format(chunkNumber=self.chunk, pub=len(docList), kbytes=size))
+                    print("/********* CHUNK {chunkNumber} *********/".format(chunkNumber=self.chunk))
+                    print(json.dumps(body, indent=4))
+                    sys.stdout.flush()
+                       
+                # try:
+                #     self.doclocker.acquire()
+                    
+                # finally:
+                #     self.doclocker.release()
+                # self.docList.clear()
                 
 
             except HTTPError as e:
@@ -411,7 +493,7 @@ class Run():
 if __name__ == '__main__':
     opts = Opts()
     lockfile = "%s.lck" % opts.CONFIG_FILE
-    logging.basicConfig(format="%(asctime)s : %(levelname)s : %(message)s", datefmt='%Y-%m-%dT%H:%M:%S%Z', level=opts.OPTIONS.log_level)
+    logging.basicConfig(format="%(asctime)s : %(levelname).8s : %(module)s.%(funcName)s(%(lineno)s) : %(message)s", datefmt='%Y-%m-%dT%H:%M:%S%Z', level=opts.OPTIONS.log_level)
     try:
         with FileLock(lockfile) as fl:
             run = Run(opts)
@@ -419,4 +501,4 @@ if __name__ == '__main__':
     except FileLockException as fle:
         log.info("Already Running")
     except Exception:
-        log.exception()
+        log.exception("Unexpected error thrown")
