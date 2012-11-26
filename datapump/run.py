@@ -456,7 +456,13 @@ class Run():
                         else:
                             published = True
                         self.couch.saw(repo_id, published)
-                        self.plog.log(docList[idx], result["doc_ID"], result["OK"], result["error"])
+                        plog_msg = {
+                            "doc_ID": None,
+                            "OK": None,
+                            "error": None,
+                        }
+                        plog_msg.update(result)
+                        self.plog.log(docList[idx], plog_msg["doc_ID"], plog_msg["OK"], plog_msg["error"])
                      
                     pubcount = numDocs - nonpubcount
                     
