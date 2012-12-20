@@ -22,7 +22,7 @@ class MicrodataPlusJSON(LearningRegistry):
 
         item = record['items'][0]
 
-        resource_locator = item["id"]
+        resource_locator = item["properties"]["url"][0]
 
         if not self.validate_resource_locator(resource_locator):
             return (None, None)
