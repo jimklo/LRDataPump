@@ -498,7 +498,7 @@ class Run():
 
 if __name__ == '__main__':
     opts = Opts()
-    lockfile = "%s.lck" % opts.CONFIG_FILE
+    lockfile = "%s" % opts.CONFIG_FILE
     logging.basicConfig(format="%(asctime)s : %(levelname).8s : %(module)s.%(funcName)s(%(lineno)s) : %(message)s", datefmt='%Y-%m-%dT%H:%M:%S%Z', level=opts.OPTIONS.log_level)
     try:
         with FileLock(lockfile) as fl:
