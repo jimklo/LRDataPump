@@ -129,7 +129,7 @@ def make_schema_org(std, filter_from=None, filter_until=None):
         if filter_until is not None:
             okay = okay & (date < filter_until)
 
-        log.info("from: {0} until: {1} date: {2} okay: {3}".format(filter_from, filter_until, date, okay))
+        log.debug("from: {0} until: {1} date: {2} okay: {3}".format(filter_from, filter_until, date, okay))
         return okay
 
     def make_copy(s, type):
@@ -235,7 +235,7 @@ class Fetcher():
 
         tmp = tempfile.NamedTemporaryFile(prefix="khan_tmp_", dir=".")
         try:
-            log.info("Temporary Fetch File: %s"%tmp.name)
+            log.error("Temporary Fetch File: %s"%tmp.name)
             res = urllib2.urlopen(self.endpoint)
             res_line = res.read(256)
             while res_line:
