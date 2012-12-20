@@ -1,8 +1,19 @@
 
-import copy, ijson, json, logging, urllib2, sys
+import copy, ijson, json, logging, urllib, urllib2, urlparse, sys, tempfile
 import commoncore
 
 log = logging.getLogger(__name__)
+
+_ka_api_commoncore = "http://www.khanacademy.org/api/v1/commoncore?lightweight=1"
+_ka_api_videos = "http://www.khanacademy.org/api/v1/videos/{0}"
+_ka_api_exercises = "http://www.khanacademy.org/api/v1/exercises/{0}"
+
+_log_dates = None
+
+def _write_log_dates(msg):
+    if _log_dates != None:
+        _log_dates.write(msg)
+        _log_dates.flush()
 
 def make_author_property(name):
     author = {
@@ -21,7 +32,7 @@ def make_video_property(item):
     }
 
     if "youtube_id" in item:
-        video["id"] = [item["youtube_id"]]
+        video["id"] = "urn:www.youtube.com:videoid:%s" % item["youtube_id"]
         video["playerType"] = ["youtube"]
 
     props = video["properties"]
@@ -42,16 +53,37 @@ def make_video_property(item):
 
     return video
 
+def get_details(url_str):
+    details = None
+    try:
+        asset_type, readable_id = urlparse.urlsplit(url_str).path.split('/')[-2:]
+
+        if asset_type.startswith("video"):
+            detail_url = _ka_api_videos.format(urllib.quote(readable_id))
+        elif asset_type.startswith("exercise"):
+            detail_url = _ka_api_exercises.format(urllib.quote(readable_id))
+        else:
+            detail_url = None
+
+        if detail_url != None:
+            details = json.load(urllib2.urlopen(detail_url))
+    except Exception as e:
+        log.exception(e)
+        log.error("detail_url: %s"%detail_url)
+    return details
 
 
-def make_schema_org(std):
+
+
+
+def make_schema_org(std, filter_from=None, filter_until=None):
 
     real_std = commoncore.ccss.getFromCurrent(std['cc_url'])
     if real_std == None:
         real_std = commoncore.ccss.getFromCurrentHash(std['cc_url'])
 
     if real_std != None:
-        cc_id = real_std['GUID']
+        cc_id = "urn:corestandards.org:guid:%s"%real_std['GUID']
         cc_url = real_std['URI']
         cc_name = real_std['Dot Notation']
     else:
@@ -88,6 +120,18 @@ def make_schema_org(std):
         sys.stderr.write("{0} {1}\n".format(cc_name, cc_url))
 
 
+    def check_date(date):
+        okay = True
+
+        if filter_from is not None:
+            okay = okay & (date >= filter_from)
+
+        if filter_until is not None:
+            okay = okay & (date < filter_until)
+
+        log.info("from: {0} until: {1} date: {2} okay: {3}".format(filter_from, filter_until, date, okay))
+        return okay
+
     def make_copy(s, type):
         item = json.loads(json.dumps(item_template))
         ka_url = s['ka_url'] 
@@ -96,10 +140,19 @@ def make_schema_org(std):
         except:
             title = s['display_name']
 
+        det = get_details(ka_url)
+        if det != None:
+            s.update(det)
+        else:
+            return None
+
         item['id'] = ka_url
         item['properties']['url'].append(ka_url)
         item['properties']['name'].append(title)
         item['properties']['learningResourceType'].append(type)
+
+        if "node_slug" in s:
+            item['id'] = 'urn:www.khanacademy.org:node_slug:%s' % s['node_slug']
 
         if "author_names" in s:
             item['properties']['author'] = []
@@ -114,11 +167,19 @@ def make_schema_org(std):
         if "views" in s:
             item['properties']['interactionCount'] = ['{0} UserPlays'.format(s['views'])]
 
+        okay = True
         if "creation_date" in s:
+            okay = okay & check_date(s['creation_date'])
+            _write_log_dates("c: {0}\t{1}\n".format(s['creation_date'],okay))
             item['properties']['dateCreated'] = [s['creation_date']]
 
         if "date_added" in s:
+            okay = okay & check_date(s['date_added'])
+            _write_log_dates("a: {0}\t{1}\n".format(s['date_added'],okay))
             item['properties']['datePublished'] = [s['date_added']]
+
+        if not okay:
+            return None
 
         if "thumbnail_image" in s:
             item['properties']['thumbnailUrl'] = [s['thumbnail_image']]
@@ -135,8 +196,6 @@ def make_schema_org(std):
         if "description" in s and s["description"] != None and s["description"].strip() != "":
             item['properties']['description'] = [ s["description"] ]
 
-
-
         return item
 
     if len(std['videos']) > 0:
@@ -149,19 +208,24 @@ def make_schema_org(std):
             i = make_copy(exercise, 'exercise')
             if i != None:
                 yield { "items": [i] }
-        
-
-
 
 
 
 class Fetcher():
     def __init__(self, namespaces=None, conf=None):
 
-        # self.endpoint = "http://www.khanacademy.org/api/v1/commoncore?lightweight=1&structured=1"
-        # self.endpoint = "http://www.khanacademy.org/api/v1/commoncore?lightweight=1"
-        self.endpoint = "http://www.khanacademy.org/api/v1/commoncore"
-        self.endpoint = "file:/Users/jklo/projects/lr/workspace/DataPump/commoncore"
+        try:
+            self.filter_from = conf["harvest_from"]
+        except:
+            self.filter_from = None
+
+        try:
+            self.filter_until = conf["harvest_until"]
+        except:
+            self.filter_until = None
+
+        self.endpoint = _ka_api_commoncore
+        # self.endpoint = "file:/Users/jklo/projects/lr/workspace/DataPump/commoncore"
         pass
 
     def fetchEarliestDatestamp(self):
@@ -169,12 +233,28 @@ class Fetcher():
 
     def fetchRecords(self):
 
-        standards = ijson.items(urllib2.urlopen(self.endpoint), 'item')
+        tmp = tempfile.NamedTemporaryFile(prefix="khan_tmp_", dir=".")
+        try:
+            log.info("Temporary Fetch File: %s"%tmp.name)
+            res = urllib2.urlopen(self.endpoint)
+            res_line = res.read(256)
+            while res_line:
+                tmp.write(res_line)
+                res_line = res.read(256)
 
-        for std in standards:
-            if ('videos' in std and len(std['videos']) > 0) or ('exercises' in std and len(std['exercises']) > 0):
-                for res in make_schema_org(std):
-                    yield [ res ]
+            tmp.seek(0)
+
+            standards = ijson.items(tmp, 'item')
+
+            for std in standards:
+                if ('videos' in std and len(std['videos']) > 0) or ('exercises' in std and len(std['exercises']) > 0):
+                    for res in make_schema_org(std, self.filter_from, self.filter_until):
+                        yield [ res ]
+        finally:
+            try:
+                tmp.close()
+            except:
+                pass
   
 
     def tostring(self, rec):
@@ -186,9 +266,32 @@ class Fetcher():
 
 
 if __name__ == '__main__':
-    f = Fetcher()
+    import argparse
+    
+    global _log_dates
 
-    print '[\n{0}\n]'.format("\n,\n".join(map(lambda x: f.tostring(x), list(f.fetchRecords()))))
+    
+    logging.basicConfig(level=logging.INFO)
+    parser = argparse.ArgumentParser(description="test harvest interface for khan academy content")
+    parser.add_argument('--from', dest="harvest_from", default=None, help="harvest_from date. ISO8601 format. YYYY-MM-DDTHH:mm:SSZ")
+    parser.add_argument('--until', dest="harvest_until", default=None, help="harvest_until date. non-inclusive. ISO8601 format. YYYY-MM-DDTHH:mm:SSZ")
+    parser.add_argument('--log-dates', dest="log_dates", default=False, type=bool, help="create a date log file for tracing.")
+    args = parser.parse_args()
+
+    if args.log_dates:
+        _log_dates = open('./log_dates.log', 'w')
+
+    f = Fetcher(conf={"harvest_from":args.harvest_from, "harvest_until": args.harvest_until})
+
+    print '['
+    for i, r in enumerate(f.fetchRecords()):
+        if i > 0:
+            print ','
+        print f.tostring(r)
+        sys.stdout.flush()
+    print ']'
+
+#    print '[\n{0}\n]'.format("\n,\n".join(map(lambda x: f.tostring(x), list(f.fetchRecords()))))
 
     
   
